@@ -13,10 +13,10 @@ import random
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
-from anchor_based_subspace_imc.data import *
-from anchor_based_subspace_imc.model import *
-from anchor_based_subspace_imc.utils import *
-from anchor_based_subspace_imc.vis import *
+from abss_imc.data import *
+from abss_imc.model import *
+from abss_imc.utils import *
+from abss_imc.vis import *
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=123)
