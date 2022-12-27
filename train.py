@@ -1,48 +1,35 @@
 import json
 import os
-from turtle import forward
-from typing import List
-from pathlib import Path as P
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
-
-
 import argparse
 import logging
-import math
 import random
-
 import numpy as np
-from sklearn.preprocessing import MinMaxScaler
 
-# TODO: don't import *
+from pathlib import Path as P
+from typing import List
+
 from abss_imc.data import PartialMultiviewDataset
-from abss_imc.model import *
-from abss_imc.utils import *
-from abss_imc.vis import *
+# from abss_imc.model import *
+# from abss_imc.utils import *
+# from abss_imc.vis import *
+from abss_imc.utils.metrics import Evaluate_Graph
+from abss_imc.utils.torch_utils import EPS_max
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=123)
 parser.add_argument("--per", type=float, default=0.5, help="paired example rate")
-parser.add_argument("--ppl", type=int, default=12, help="perplexity")
 parser.add_argument("--lamda", type=float, default=0.1, help="lambda")
-parser.add_argument("--beta", type=float, default=0.1)
 parser.add_argument("--lr", type=float, default=0.001)
 parser.add_argument("--datapath", type=str, default="./datasets/coil20_3view_1024.mat")
 parser.add_argument("--views", type=str, default="0,1", help="view ids")
 parser.add_argument("--savedir", type=str, default="./output/debug")
-parser.add_argument("--hidden_dims", type=int, default=128, help="dims of hidden rep")
 parser.add_argument("--logfile", type=str, default="./train.log")
 parser.add_argument("--eval_epochs", type=int, default=1)
 parser.add_argument("--epochs", type=int, default=1, help="completer train epochs")
-parser.add_argument("--cluster_update_epoch", type=int, default=10)
-parser.add_argument("--use_mlp", type=bool, default=True, help="use mlp encoder")
-parser.add_argument(
-    "--stop_thresh",
-    type=float,
-    default=1,
-    help="stop when label change diff is lower than this value",
-)
+
 
 args = parser.parse_args()
 args.views = [int(x) for x in args.views.split(",")]
@@ -72,20 +59,20 @@ logging.info(args)
 
 
 def fuse_incomplete_view_z(
-    Z_v: List[Tensor],
-    W_v: List[Tensor],
+    Z: List[Tensor],
+    W: List[Tensor],
     output_shape: tuple,
 ):
     """
     将按照[A, U]排列的局部锚点图融合为全局锚点图（按原始样本顺序）
     """
-    device = Z_v[0].device
+    device = Z[0].device
     # 为了节省内存，分配一个原地加法的内存。
     numerator = torch.zeros(output_shape, device=device)
     dominator = torch.zeros(output_shape, device=device)
-    for Z, W in zip(Z_v, W_v):
-        numerator[W] += Z
-        dominator[W] += 1
+    for v in range(len(Z)):
+        numerator[W[v]] += Z[v]
+        dominator[W[v]] += 1
 
     # 除零错误处理。
     zero_places = dominator == 0.0
@@ -96,10 +83,14 @@ def fuse_incomplete_view_z(
     return Z_fused
 
 
-class Preprocess(nn.Module):
-    def __init__(self) -> None:
-        super(Preprocess, self).__init__()
+def masked_softmax(X: Tensor, M: Tensor):
+    logits = torch.exp(X) * M
+    normalization = EPS_max(logits.sum(1)).unsqueeze(1)
+    masked_probas = logits / normalization
+    return masked_probas
 
+
+class Preprocess(nn.Module):
     def forward(self):
         data = PartialMultiviewDataset(
             datapath=P(args.datapath),
@@ -111,89 +102,94 @@ class Preprocess(nn.Module):
         A = data.X_paired_list
         U = data.X_single_list
         W = data.idx_all_list
-
         res = dict(
             data=data,
-            viewNum=data.viewNum,
             mm=MaxMetrics(ACC=True, NMI=True, PUR=True, F1=True),
             A=convert_tensor(A, torch.float, args.device),
             U=convert_tensor(U, torch.float, args.device),
             W=convert_tensor(W, torch.float, args.device),
+            V=data.viewNum,
+            n=data.sampleNum,
+            n_a=data.pairedNum,
+            n_u=[U[v].shape[0] for v in range(data.viewNum)],
         )
         return res
 
 
-class SparseSubspaceModel(nn.Module):
-
-    def __init__(self, n: int) -> None:
-        super().__init__()
-        self.n = n
-        self.S = nn.Parameter(torch.empty(n, n))
-        nn.init.normal_(self.S)
-        self.M = 1 - torch.eye(n)
-        self.M.requires_grad_(False)
-
-    def forward(self, inputs: dict):
-        logits = torch.exp(self.S) * self.M
-
-
-class SparseSubspaceLoss(nn.Module):
-       
-    def forward(self, inputs: dict):
-        X = inputs.get("X")        
-        S = inputs.get("S")
-        loss = F.mse_loss(S @ X, X)
-        inputs['loss'] = loss
-        return inputs
-
-class InterViewConsensusModel(nn.Module):
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    def forward(self, inputs: dict):
-        pass
-
-
-class IntraViewAnchorModel(nn.Module):
-
-    def __init__(self) -> None:
-        super().__init__()
-
-    def forward(self, inputs: dict):
-        pass
-
-
-
 class AnchorBasedSparseSubspaceModel(nn.Module):
-    """
-    补全模型，先预训练然后得到补全后的特征。
-    """
-
-    def __init__(self, d: int, in_channels: List[int]):
+    def __init__(self, n: int, n_a: int, V: int, n_u: List[int], **kwds):
         super(AnchorBasedSparseSubspaceModel, self).__init__()
+        self.n = n
+        self.n_a = n_a
+        self.n_u = n_u
+        self.V = V
+        self.Theta_a = nn.ParameterList(
+            [nn.Parameter(torch.zeros(n_a, n_a)) for _ in range(V)]
+        )
+        self.Theta_u = nn.ParameterList(
+            [nn.Parameter(torch.zeros(n_u[i], n_a)) for i in range(V)]
+        )
+        # NOTE: Use Parameter for model.to(device)
+        self.M = nn.Parameter(data=(1 - torch.eye(n_a)), requires_grad=False)
 
     def forward(self, inputs: dict):
-        pass
+        Z_a = []
+        Z_u = []
+        Z = []
+        W = inputs.get("W")
+        Z_a_centroid = torch.zeros_like(self.Theta_a[0])
+        for v in range(self.V):
+            Z_a.append(masked_softmax(self.Theta_a[v]))
+            Z_u.append(F.softmax(self.Theta_u[v], 1))
+            Z_a_centroid += Z_a[v]
 
+        Z_a_centroid = Z_a_centroid / self.V
+        for v in range(self.V):
+            Z.append(torch.cat((Z_a_centroid, Z_u[v])).detach())
+        Z_fused = fuse_incomplete_view_z(Z, W)
 
-class CompletionLoss(nn.Module):
-    """
-    补全损失函数。
-    """
-
-    def __init__(self, lamda: float):
-        super(CompletionLoss, self).__init__()
-        self.lamda = lamda
-
-    def forward(self, inputs: dict):
+        inputs.update(
+            Z_a=Z_a,
+            Z_u=Z_u,
+            Z_a_centroid=Z_a_centroid,
+            Z_fused=Z_fused,
+        )
         return inputs
 
 
+class AnchorBasedSparseSubpaceLoss(nn.Module):
+    def __init__(self, lamda: float, V: int):
+        super(AnchorBasedSparseSubpaceLoss, self).__init__()
+        self.lamda = lamda
+        self.V = V
 
-class ClusteringPostProcess(nn.Module):
+    def forward(self, inputs: dict):
+        U = inputs.get("U")
+        A = inputs.get("A")
+        Z_a = inputs.get("Z_a")
+        Z_u = inputs.get("Z_u")
+        Z_a_centroid = inputs.get("Z_a_centroid")
+        L_a1 = 0
+        L_a2 = 0
+        L_u = 0
+        for v in range(self.V):
+            L_a1 += F.mse_loss(Z_a[v] @ A[v], A[v])
+            L_a2 += F.mse_loss(Z_a_centroid @ A[v], A[v])
+            L_u += F.mse_loss(Z_u[v] @ A[v], U[v])
+
+        loss = L_a1 + self.lamda * L_a2 + L_u
+        inputs.update(
+            loss=loss,
+            L_a1=L_a1,
+            L_a2=L_a2,
+            L_u=L_u,
+        )
+        return inputs
+
+
+class PostProcess(nn.Module):
     def __init__(self) -> None:
-        super(ClusteringPostProcess, self).__init__()
+        super(PostProcess, self).__init__()
 
     def forward(self, inputs: dict):
         savedir: P = P(args.savedir)
@@ -210,63 +206,39 @@ class ClusteringPostProcess(nn.Module):
         config_outfile.write_text(config)
         # TODO: lots of visualization
 
-        H = inputs.get("H")  # pretrained latent
-        H_bar = inputs.get("H_bar")  # finetuned latent
-        S_bar = inputs.get("S_bar")  # Graph of completed features
-        X = inputs.get("X")  # gt of input features X
-        X_bar = inputs.get("X_bar")
-
-        H = convert_numpy(H)
-        H_bar = convert_numpy(H_bar)
-        S_bar = convert_numpy(S_bar)
-        X = convert_numpy(X)
-        X_bar = convert_numpy(X_bar)
-
-        post_scalers: List[MinMaxScaler] = inputs.get("post_scalers")
-        for v in range(inputs["viewNum"]):
-            X_bar[v] = post_scalers[v].inverse_transform(X_bar[v])
-
         return inputs
 
 
 def main():
-    preprocessor = Preprocess()
-    inputs = preprocessor()
-    data = inputs["data"]
+    preprocess = Preprocess()
+    inputs = preprocess()
+    data: PartialMultiviewDataset = inputs["data"]
     mm = inputs["mm"]
-    completer_model = AnchorBasedSparseSubspaceModel(
-        d=args.hidden_dims,
-        in_channels=inputs["data"].view_dims,
-    ).to(args.device)
-    completer_loss = CompletionLoss(args.lamda)
-    optim = torch.optim.Adam(completer_model.parameters(), lr=args.lr)
-    logging.info("************* Begin train completer model **************")
+    subspace_model = AnchorBasedSparseSubspaceModel(**inputs).to(args.device)
+    criterion = AnchorBasedSparseSubpaceLoss(args.lamda, data.viewNum)
+    optim = torch.optim.Adam(subspace_model.parameters(), lr=args.lr)
+    logging.info("************* Begin train subspace model **************")
 
     for epoch in range(args.epochs):
-        completer_model.train()
-        inputs = completer_model(inputs)
-        inputs = completer_loss(inputs)
-        loss = inputs["loss_completion"]["L"]
+        subspace_model.train()
+        inputs = subspace_model(inputs)
+        inputs = criterion(inputs)
+        loss = inputs["loss"]
         optim.zero_grad()
         loss.backward()
         optim.step()
 
         if (1 + epoch) % args.eval_epochs == 0:
-            completer_model.eval()
+            subspace_model.eval()
             with torch.no_grad():
-                inputs = completer_model(inputs)
-            metrics = KMeans_Evaluate(inputs["H"], data)
-            metrics["MSE"] = mse_missing_part(
-                X_hat=inputs["X_hat"],
-                X=inputs["X"],
-                M=inputs["M"],
-            )
+                inputs = subspace_model(inputs)
+            metrics = Evaluate_Graph(data, Z=inputs["Z_fused"])
             mm.update(**metrics)
             logging.info(f"epoch {epoch:04} {loss.item():.4f} {mm.report()}")
 
     logging.info("************* Begin postprocessing of Clustering **************")
-    clustering_post = ClusteringPostProcess()
-    inputs = clustering_post(inputs)
+    postprocess = PostProcess()
+    inputs = postprocess(inputs)
 
 
 if __name__ == "__main__":
