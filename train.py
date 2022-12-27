@@ -11,11 +11,16 @@ from pathlib import Path as P
 from typing import List
 
 from abss_imc.data import PartialMultiviewDataset
-# from abss_imc.model import *
-# from abss_imc.utils import *
-# from abss_imc.vis import *
-from abss_imc.utils.metrics import Evaluate_Graph
-from abss_imc.utils.torch_utils import EPS_max
+from abss_imc.utils.metrics import Evaluate_Graph, MaxMetrics
+from abss_imc.utils.torch_utils import (
+    EPS_max,
+    torch,
+    nn,
+    F,
+    Tensor,
+    convert_numpy,
+    convert_tensor,
+)
 
 
 parser = argparse.ArgumentParser()
@@ -107,7 +112,7 @@ class Preprocess(nn.Module):
             mm=MaxMetrics(ACC=True, NMI=True, PUR=True, F1=True),
             A=convert_tensor(A, torch.float, args.device),
             U=convert_tensor(U, torch.float, args.device),
-            W=convert_tensor(W, torch.float, args.device),
+            W=convert_tensor(W, torch.long, args.device),
             V=data.viewNum,
             n=data.sampleNum,
             n_a=data.pairedNum,
@@ -139,14 +144,14 @@ class AnchorBasedSparseSubspaceModel(nn.Module):
         W = inputs.get("W")
         Z_a_centroid = torch.zeros_like(self.Theta_a[0])
         for v in range(self.V):
-            Z_a.append(masked_softmax(self.Theta_a[v]))
+            Z_a.append(masked_softmax(self.Theta_a[v], self.M))
             Z_u.append(F.softmax(self.Theta_u[v], 1))
             Z_a_centroid += Z_a[v]
 
         Z_a_centroid = Z_a_centroid / self.V
         for v in range(self.V):
             Z.append(torch.cat((Z_a_centroid, Z_u[v])).detach())
-        Z_fused = fuse_incomplete_view_z(Z, W)
+        Z_fused = fuse_incomplete_view_z(Z, W, (self.n, self.n_a))
 
         inputs.update(
             Z_a=Z_a,
