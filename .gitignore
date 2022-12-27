@@ -139,8 +139,6 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
-*.mat
-/datasets/
 .idea/
 .DS_Store
 /output/debug/
