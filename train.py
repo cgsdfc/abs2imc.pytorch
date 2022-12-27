@@ -1,6 +1,8 @@
 import json
 import os
+from turtle import forward
 from typing import List
+from pathlib import Path as P
 
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 
@@ -13,7 +15,8 @@ import random
 import numpy as np
 from sklearn.preprocessing import MinMaxScaler
 
-from abss_imc.data import *
+# TODO: don't import *
+from abss_imc.data import PartialMultiviewDataset
 from abss_imc.model import *
 from abss_imc.utils import *
 from abss_imc.vis import *
@@ -40,16 +43,7 @@ parser.add_argument(
     default=1,
     help="stop when label change diff is lower than this value",
 )
-parser.add_argument(
-    "--mask_kind",
-    type=str,
-    default="general",
-    choices=[
-        "general",
-        "partial",
-        "weaker",
-    ],
-)
+
 args = parser.parse_args()
 args.views = [int(x) for x in args.views.split(",")]
 args.savedir = P(args.savedir)
@@ -77,102 +71,110 @@ logging.basicConfig(
 logging.info(args)
 
 
+def fuse_incomplete_view_z(
+    Z_v: List[Tensor],
+    W_v: List[Tensor],
+    output_shape: tuple,
+):
+    """
+    将按照[A, U]排列的局部锚点图融合为全局锚点图（按原始样本顺序）
+    """
+    device = Z_v[0].device
+    # 为了节省内存，分配一个原地加法的内存。
+    numerator = torch.zeros(output_shape, device=device)
+    dominator = torch.zeros(output_shape, device=device)
+    for Z, W in zip(Z_v, W_v):
+        numerator[W] += Z
+        dominator[W] += 1
+
+    # 除零错误处理。
+    zero_places = dominator == 0.0
+    assert torch.all(numerator[zero_places] == 0.0)
+    dominator[dominator == 0] = 1  # 如果有0，说明分子也是零.
+
+    Z_fused = numerator / dominator
+    return Z_fused
+
+
 class Preprocess(nn.Module):
     def __init__(self) -> None:
         super(Preprocess, self).__init__()
 
     def forward(self):
-        data = MultiviewDataset(
+        data = PartialMultiviewDataset(
             datapath=P(args.datapath),
             view_ids=args.views,
+            paired_rate=1 - args.per,
+            normalize="minmax",
         )
         logging.info("Loaded dataset {}".format(data.name))
-
-        # 缺失指示矩阵 M
-        M = make_mask(
-            paired_rate=args.per,
-            sampleNum=data.sampleNum,
-            viewNum=data.viewNum,
-            kind=args.mask_kind,
-        )
-
-        # 每个视角的实际存在样本
-        X_tilde = [data.X[v][M[:, v]] for v in range(data.viewNum)]
-        Scaler = [MinMaxScaler() for _ in range(data.viewNum)]
-        for v in range(data.viewNum):
-            X_tilde[v] = Scaler[v].fit_transform(X_tilde[v])
-        X_tilde = convert_tensor(X_tilde, torch.float, args.device)
-
-        # 未归一化的高斯核
-        S_tilde = [
-            calculate_optimized_p_cond(x_tilde, math.log2(args.ppl), dev=args.device)
-            for x_tilde in X_tilde
-        ]
-
-        # 原始数据联合概率分布
-        P_tilde = [make_joint(s_tilde) for s_tilde in S_tilde]
+        A = data.X_paired_list
+        U = data.X_single_list
+        W = data.idx_all_list
 
         res = dict(
             data=data,
             viewNum=data.viewNum,
-            pre_scalers=Scaler,
-            M=convert_tensor(M, torch.bool, args.device),
-            S_tilde=S_tilde,
-            P_tilde=P_tilde,
-            X_tilde=X_tilde,
-            X=convert_tensor(data.X, torch.float, args.device),
             mm=MaxMetrics(ACC=True, NMI=True, PUR=True, F1=True),
+            A=convert_tensor(A, torch.float, args.device),
+            U=convert_tensor(U, torch.float, args.device),
+            W=convert_tensor(W, torch.float, args.device),
         )
         return res
 
 
-class CompleterModel(nn.Module):
+class SparseSubspaceModel(nn.Module):
+
+    def __init__(self, n: int) -> None:
+        super().__init__()
+        self.n = n
+        self.S = nn.Parameter(torch.empty(n, n))
+        nn.init.normal_(self.S)
+        self.M = 1 - torch.eye(n)
+        self.M.requires_grad_(False)
+
+    def forward(self, inputs: dict):
+        logits = torch.exp(self.S) * self.M
+
+
+class SparseSubspaceLoss(nn.Module):
+       
+    def forward(self, inputs: dict):
+        X = inputs.get("X")        
+        S = inputs.get("S")
+        loss = F.mse_loss(S @ X, X)
+        inputs['loss'] = loss
+        return inputs
+
+class InterViewConsensusModel(nn.Module):
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, inputs: dict):
+        pass
+
+
+class IntraViewAnchorModel(nn.Module):
+
+    def __init__(self) -> None:
+        super().__init__()
+
+    def forward(self, inputs: dict):
+        pass
+
+
+
+class AnchorBasedSparseSubspaceModel(nn.Module):
     """
     补全模型，先预训练然后得到补全后的特征。
     """
 
     def __init__(self, d: int, in_channels: List[int]):
-        super(CompleterModel, self).__init__()
-        self.Encoder = nn.ModuleList()
-        self.Decoder = nn.ModuleList()
-        self.d = d
-        for v, in_channel in enumerate(in_channels):
-            if args.use_mlp:
-                encoder = NeuralMapper(dim_input=in_channel, dim_emb=d)
-            else:
-                encoder = GCN_Encoder_SDIMC(view_dim=in_channel, clusterNum=d)
-            decoder = Imputer(dim_output=in_channel, dim_emb=d)
-            self.Encoder.append(encoder)
-            self.Decoder.append(decoder)
+        super(AnchorBasedSparseSubspaceModel, self).__init__()
 
     def forward(self, inputs: dict):
-        X_tilde: List[Tensor] = inputs.get("X_tilde")
-        M: Tensor = inputs.get("M")
-        S_tilde: List[Tensor] = inputs.get("S_tilde")
-
-        H_tilde = []
-        viewNum = len(X_tilde)
-        sampleNum = M.shape[0]
-        # Encoding
-        for v in range(viewNum):
-            if args.use_mlp:
-                h_tilde = self.Encoder[v](X_tilde[v])
-            else:
-                h_tilde = self.Encoder[v](X_tilde[v], S_tilde[v])
-            H_tilde.append(h_tilde)
-        # Fusion
-        H = torch.zeros(sampleNum, self.d).to(args.device)
-        for v in range(viewNum):
-            H[M[:, v]] += H_tilde[v]
-        # Decoding
-        X_hat = []
-        for v in range(viewNum):
-            x_hat = self.Decoder[v](H)
-            X_hat.append(x_hat)
-
-        inputs["H"] = H
-        inputs["X_hat"] = X_hat
-        return inputs
+        pass
 
 
 class CompletionLoss(nn.Module):
@@ -185,139 +187,8 @@ class CompletionLoss(nn.Module):
         self.lamda = lamda
 
     def forward(self, inputs: dict):
-        P_tilde: List[Tensor] = inputs.get("P_tilde")
-        H: Tensor = inputs.get("H")
-        M: Tensor = inputs.get("M")
-        X: List[Tensor] = inputs.get("X")
-        X_hat: List[Tensor] = inputs.get("X_hat")
-        # Loss representation
-        H_bar = []
-        Q_bar = []
-        sampleNum, viewNum = M.shape
-        L_tsne = 0
-        for v in range(viewNum):
-            h_bar = H[M[:, v]]
-            q_bar = get_q_joint(h_bar)
-            H_bar.append(h_bar)
-            Q_bar.append(q_bar)
-            L_tsne += loss_function(p_joint=P_tilde[v], q_joint=q_bar)
-        # Loss completion
-        L_mse = 0
-        for v in range(viewNum):
-            pred = X_hat[v][M[:, v]]
-            gt = X[v][M[:, v]]
-            L_mse += F.mse_loss(pred, gt)
-        L = L_tsne + self.lamda * L_mse
-        inputs.update(loss_completion=dict(L=L, L_tsne=L_tsne, L_mse=L_mse))
         return inputs
 
-
-class CompletionPostProcess(nn.Module):
-    """
-    补全模型训练完毕后，利用它补全特征，重新归一化，获取初始类簇给聚类模型初始化。
-    """
-
-    def __init__(self, pretrained_model: CompleterModel) -> None:
-        super(CompletionPostProcess, self).__init__()
-        model_path = P(args.savedir).joinpath("completer-model.pth")
-        # torch.save(pretrained_model.state_dict(), model_path.open("wb"))
-        self.completer_model = pretrained_model
-        self.completer_model_path = model_path
-
-    def forward(self, inputs: dict):
-        self.completer_model.eval()
-        with torch.no_grad():
-            inputs = self.completer_model(inputs)
-
-        X_hat = inputs.get("X_hat")
-        X = inputs.get("X")
-        M = inputs.get("M")
-        M = convert_numpy(M)
-        H = inputs.get("H")
-        pre_scalers: List[MinMaxScaler] = inputs.get("pre_scalers")
-        post_scalers = [MinMaxScaler() for _ in range(inputs["viewNum"])]
-        X_bar = []
-        # Completion
-        for v in range(inputs["viewNum"]):
-            x_hat = X_hat[v]
-            x_hat = convert_numpy(x_hat)
-            x_hat = pre_scalers[v].inverse_transform(x_hat)
-            x = X[v]
-            x = convert_numpy(x)
-            x_bar = np.zeros_like(x)
-            x_bar[M[:, v]] = x_hat[M[:, v]]
-            x_bar[~M[:, v]] = x[~M[:, v]]
-            x_bar = post_scalers[v].fit_transform(x_bar)
-            x_bar = convert_tensor(x_bar, torch.float, args.device)
-            X_bar.append(x_bar)
-        # Initial Clustering
-        data = inputs["data"]
-        metrics, centroid, ypred = KMeans_Evaluate(H, data, return_centroid=True)
-        mm = inputs["mm"]
-        mm.update(**metrics)
-        logging.info("After completion pretraining {}".format(mm.report()))
-        # Build Complete Graph
-        S_bar = [
-            calculate_optimized_p_cond(x_bar, math.log2(args.ppl), dev=args.device)
-            for x_bar in X_bar
-        ]
-        P_bar = [make_joint(s_bar) for s_bar in S_bar]
-        # Save Output Variables
-        inputs["centroid"] = centroid
-        inputs["ypred"] = ypred
-        inputs["S_bar"] = S_bar
-        inputs["X_bar"] = X_bar
-        inputs["P_bar"] = P_bar
-        inputs["H"] = H
-        inputs["post_scalers"] = post_scalers
-        inputs["completer_model"] = self.completer_model
-        inputs["completer_model_path"] = self.completer_model_path
-        return inputs
-
-
-class ClusteringModel(nn.Module):
-    def __init__(self, inputs: dict) -> None:
-        super(ClusteringModel, self).__init__()
-        self.Encoder = inputs["completer_model"].Encoder
-        self.Mu = nn.Parameter(inputs["centroid"])
-
-    def forward(self, inputs: dict):
-        X_bar: List[Tensor] = inputs.get("X_bar")
-        S_bar: List[Tensor] = inputs.get("S_bar")
-        H_bar = torch.zeros_like(inputs["H"]).to(args.device)
-        # Encoding
-        for v in range(inputs.get("viewNum")):
-            if args.use_mlp:
-                h = self.Encoder[v](X_bar[v])
-            else:
-                h = self.Encoder[v](X_bar[v], S_bar[v])
-            H_bar += h
-        # Soft clustering
-        Q_cluster = get_q_cluster(H_bar, self.Mu)
-        inputs["H_bar"] = H_bar
-        inputs["Q_cluster"] = Q_cluster
-        return inputs
-
-
-class ClusteringLoss(nn.Module):
-    def __init__(self) -> None:
-        super(ClusteringLoss, self).__init__()
-        self.beta = args.beta
-
-    def forward(self, inputs: dict):
-        Q_cluster: Tensor = inputs.get("Q_cluster")
-        P_cluster: Tensor = inputs.get("P_cluster")
-        P_bar: List[Tensor] = inputs.get("P_bar")
-        H_bar = inputs.get("H_bar")
-        L_cluster = kl_clustering_loss(q=Q_cluster, p=P_cluster)
-        Q_bar = get_q_joint(H_bar)
-        L_tsne = 0
-        for v in range(inputs["viewNum"]):
-            L_tsne += loss_function(p_joint=P_bar[v], q_joint=Q_bar)
-
-        L = L_tsne + self.beta * L_cluster
-        inputs["loss_cluster"] = dict(L=L, L_tsne=L_tsne, L_cluster=L_cluster)
-        return inputs
 
 
 class ClusteringPostProcess(nn.Module):
@@ -355,13 +226,15 @@ class ClusteringPostProcess(nn.Module):
         for v in range(inputs["viewNum"]):
             X_bar[v] = post_scalers[v].inverse_transform(X_bar[v])
 
+        return inputs
+
 
 def main():
     preprocessor = Preprocess()
     inputs = preprocessor()
     data = inputs["data"]
     mm = inputs["mm"]
-    completer_model = CompleterModel(
+    completer_model = AnchorBasedSparseSubspaceModel(
         d=args.hidden_dims,
         in_channels=inputs["data"].view_dims,
     ).to(args.device)
@@ -390,47 +263,6 @@ def main():
             )
             mm.update(**metrics)
             logging.info(f"epoch {epoch:04} {loss.item():.4f} {mm.report()}")
-
-    logging.info("************* Begin postprocessing of Completion **************")
-
-    completion_post = CompletionPostProcess(completer_model)
-    inputs = completion_post(inputs)
-    clustering_model = ClusteringModel(inputs).to(args.device)
-    clustering_loss = ClusteringLoss()
-    optim = torch.optim.Adam(clustering_model.parameters(), lr=args.lr)
-
-    # TODO: 按照KL训练的算法进行。
-    P_cluster = None
-    loss = 0
-    ypred = inputs["ypred"]
-    logging.info("************* Begin train clustering model **************")
-    while True:
-        clustering_model.train()
-        if epoch % args.cluster_update_epoch == 0:
-            # 注意，这里epoch不要加1，因为0，即初始化。
-            clustering_model.eval()
-            inputs: dict = clustering_model(inputs)
-            Q_cluster = inputs["Q_cluster"]
-            P_cluster = target_distribution(Q_cluster)
-            inputs.update(P_cluster=P_cluster)
-            ypred_Q = torch.argmax(Q_cluster, 1)
-            metrics = get_all_metrics(data.Y, convert_numpy(ypred_Q))
-            mm.update(**metrics)
-            print(f"epoch {epoch:05} {loss:.4f} {mm.report()}")
-            diff = torch.abs(ypred - ypred_Q).int()
-            diff = torch.count_nonzero(diff) / data.sampleNum
-            if diff < args.stop_thresh:
-                logging.info(
-                    "diff={}, stop-thresh={}, STOP".format(diff, args.stop_thresh)
-                )
-                break
-
-        inputs = clustering_model(inputs)
-        inputs = clustering_loss(inputs)
-        loss = inputs["loss_cluster"]["L"]
-        optim.zero_grad()
-        loss.backward()
-        optim.step()
 
     logging.info("************* Begin postprocessing of Clustering **************")
     clustering_post = ClusteringPostProcess()
