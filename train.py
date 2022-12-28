@@ -26,7 +26,7 @@ from abss_imc.utils.torch_utils import (
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=123)
 parser.add_argument("--per", type=float, default=0.3, help="paired example rate")
-parser.add_argument("--lamda", type=float, default=0.5, help="lambda")
+parser.add_argument("--lamda", type=float, default=0.1, help="lambda")
 parser.add_argument("--lr", type=float, default=0.1)
 parser.add_argument("--datapath", type=str, default="./dataset/handwrittenRnSp.mat")
 parser.add_argument("--views", type=str, default=None, help="view ids")
@@ -184,11 +184,11 @@ class AnchorBasedSparseSubpaceLoss(nn.Module):
             L_u += F.mse_loss(Z_u[v] @ A[v], U[v])
 
         loss = L_a1 + self.lamda * L_a2 + L_u
-        inputs.update(
-            loss=loss,
+        inputs["loss"] = dict(
             L_a1=L_a1,
             L_a2=L_a2,
             L_u=L_u,
+            L=loss,
         )
         return inputs
 
@@ -210,8 +210,7 @@ class PostProcess(nn.Module):
         config = json.dumps(config, indent=4, ensure_ascii=False)
         config_outfile = savedir.joinpath("config.json")
         config_outfile.write_text(config)
-        # TODO: lots of visualization
-
+        
         return inputs
 
 
@@ -229,7 +228,7 @@ def main():
         subspace_model.train()
         inputs = subspace_model(inputs)
         inputs = criterion(inputs)
-        loss = inputs["loss"]
+        loss = inputs["loss"]["L"]
         optim.zero_grad()
         loss.backward()
         optim.step()
