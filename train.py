@@ -29,7 +29,7 @@ parser.add_argument("--per", type=float, default=0.3, help="paired example rate"
 parser.add_argument("--lamda", type=float, default=0.5, help="lambda")
 parser.add_argument("--lr", type=float, default=0.1)
 parser.add_argument("--datapath", type=str, default="./dataset/handwrittenRnSp.mat")
-parser.add_argument("--views", type=str, default="0,1", help="view ids")
+parser.add_argument("--views", type=str, default=None, help="view ids")
 parser.add_argument("--savedir", type=str, default="./output/debug")
 parser.add_argument("--logfile", type=str, default="./train.log")
 parser.add_argument("--eval_epochs", type=int, default=10)
@@ -37,7 +37,8 @@ parser.add_argument("--epochs", type=int, default=200, help="train epochs")
 
 
 args = parser.parse_args()
-args.views = [int(x) for x in args.views.split(",")]
+if args.views is not None:
+    args.views = [int(x) for x in args.views.split(",")]
 args.savedir = P(args.savedir)
 args.savedir.mkdir(parents=1, exist_ok=1)
 args.datapath = P(args.datapath)
