@@ -340,7 +340,6 @@ def Evaluate_Graph(
     )
     if return_spectral_embedding:
         ff = convert_numpy(ff)
-        print(metrics)
         return ff
     return metrics
 

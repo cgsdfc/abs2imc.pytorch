@@ -1,6 +1,7 @@
 import json
 import os
 
+
 os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import argparse
 import logging
@@ -10,6 +11,7 @@ import numpy as np
 from pathlib import Path as P
 from typing import List
 
+from abss_imc.vis.plot_utils import sns, plt, pairwise_distances
 from abss_imc.data import PartialMultiviewDataset
 from abss_imc.utils.metrics import Evaluate_Graph, MaxMetrics
 from abss_imc.utils.torch_utils import (
@@ -152,13 +154,13 @@ class AnchorBasedSparseSubspaceModel(nn.Module):
         Z_a_centroid = Z_a_centroid / self.V
         for v in range(self.V):
             Z.append(torch.cat((Z_a_centroid, Z_u[v])).detach())
-        Z_fused = fuse_incomplete_view_z(Z, W, (self.n, self.n_a))
+        Z = fuse_incomplete_view_z(Z, W, (self.n, self.n_a))
 
         inputs.update(
             Z_a=Z_a,
             Z_u=Z_u,
             Z_a_centroid=Z_a_centroid,
-            Z_fused=Z_fused,
+            Z=Z,
         )
         return inputs
 
@@ -202,6 +204,7 @@ class PostProcess(nn.Module):
         metrics_outfile = savedir.joinpath("metrics.json")
         mm: MaxMetrics = inputs["mm"]
         metrics = json.dumps(mm.report(current=False), indent=4)
+        print('Best metrics', metrics)
         metrics_outfile.write_text(metrics)
         config = {
             key: str(val) if isinstance(val, P) else val
@@ -210,7 +213,23 @@ class PostProcess(nn.Module):
         config = json.dumps(config, indent=4, ensure_ascii=False)
         config_outfile = savedir.joinpath("config.json")
         config_outfile.write_text(config)
-        
+
+        Z = inputs.get("Z")
+        data = inputs.get("data")
+        P_ = Evaluate_Graph(data, Z=Z, return_spectral_embedding=True)
+        D = pairwise_distances(P_)
+        Z = convert_numpy(Z)
+
+        sns.heatmap(D, cmap='winter')
+        plt.title('Block diagonal structure of spectral embeddings $P$')
+        plt.savefig(str(savedir.joinpath("P-blockdiag.jpg")))
+        plt.close()
+
+        sns.heatmap(Z, cmap='winter')
+        plt.title('Complete consensus sparse anchor graph $Z$')
+        plt.savefig(str(savedir.joinpath("Z.jpg")))
+        plt.close()
+
         return inputs
 
 
@@ -237,7 +256,7 @@ def main():
             subspace_model.eval()
             with torch.no_grad():
                 inputs = subspace_model(inputs)
-            metrics = Evaluate_Graph(data, Z=inputs["Z_fused"])
+            metrics = Evaluate_Graph(data, Z=inputs["Z"])
             mm.update(**metrics)
             logging.info(f"epoch {epoch:04} {loss.item():.4f} {mm.report()}")
 
