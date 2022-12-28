@@ -25,15 +25,15 @@ from abss_imc.utils.torch_utils import (
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--seed", type=int, default=123)
-parser.add_argument("--per", type=float, default=0.5, help="paired example rate")
-parser.add_argument("--lamda", type=float, default=0.1, help="lambda")
-parser.add_argument("--lr", type=float, default=0.001)
-parser.add_argument("--datapath", type=str, default="./dataset/coil20_3view_1024.mat")
+parser.add_argument("--per", type=float, default=0.3, help="paired example rate")
+parser.add_argument("--lamda", type=float, default=0.5, help="lambda")
+parser.add_argument("--lr", type=float, default=0.1)
+parser.add_argument("--datapath", type=str, default="./dataset/handwrittenRnSp.mat")
 parser.add_argument("--views", type=str, default="0,1", help="view ids")
 parser.add_argument("--savedir", type=str, default="./output/debug")
 parser.add_argument("--logfile", type=str, default="./train.log")
-parser.add_argument("--eval_epochs", type=int, default=1)
-parser.add_argument("--epochs", type=int, default=1, help="train epochs")
+parser.add_argument("--eval_epochs", type=int, default=10)
+parser.add_argument("--epochs", type=int, default=200, help="train epochs")
 
 
 args = parser.parse_args()
@@ -100,7 +100,7 @@ class Preprocess(nn.Module):
         data = PartialMultiviewDataset(
             datapath=P(args.datapath),
             view_ids=args.views,
-            paired_rate=1 - args.per,
+            paired_rate=args.per,
             normalize="minmax",
         )
         logging.info("Loaded dataset {}".format(data.name))
