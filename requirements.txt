@@ -2,7 +2,3 @@ torch
 seaborn
 numpy
 munkres
-torch-sparse
-torch-scatter
-torch-geometric
-torch-cluster

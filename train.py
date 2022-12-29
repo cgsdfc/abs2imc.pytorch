@@ -11,10 +11,10 @@ import numpy as np
 from pathlib import Path as P
 from typing import List
 
-from abss_imc.vis.plot_utils import sns, plt, pairwise_distances
-from abss_imc.data import PartialMultiviewDataset
-from abss_imc.utils.metrics import Evaluate_Graph, MaxMetrics
-from abss_imc.utils.torch_utils import (
+from abs2imc.vis.plot_utils import sns, plt, pairwise_distances
+from abs2imc.data import PartialMultiviewDataset
+from abs2imc.utils.metrics import Evaluate_Graph, MaxMetrics
+from abs2imc.utils.torch_utils import (
     EPS_max,
     torch,
     nn,

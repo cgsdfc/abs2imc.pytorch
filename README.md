@@ -1,9 +1,14 @@
 ## Introduction
 
-This is a PyTorch implementation of Anchor-based Sparse Subspace Incomplete Multi-view Clustering.
+This is the official PyTorch implementation of Anchor-based Sparse Subspace Incomplete Multi-view Clustering.
+
+> Anchor-based Sparse Subspace Incomplete Multi-view Clustering	04/2022-10/2022
+> Ao Li, Cong Feng, Zhuo Wang, Yuegong Sun, Zizhen Wang, Ling Sun.
+
+![image.png](docs/image.png)
 
 
-## Usage
+## Install & Run
 
 ```
 pip install -r requirements.txt
