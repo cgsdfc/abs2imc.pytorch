@@ -103,7 +103,7 @@ $$
   - $Z$的每行元素之和都为1；
   - $Z$的对角线元素为0；
 - 使用均方误差损失 $\mathcal{L}_{MSE}(X, Y)$来实现F范数误差，即$\left\Vert X - Y \right\Vert_F^2$；
-- 待求的子空间矩阵 $\{Z_a,Z_a^{(v)},Z_u^{(v)}\}_{v=1}^V$分别用可学习参数 $\{\Theta_a,\Theta_a^{(v)},\Theta_u^{(v)}\}_{v=1}^V$ 表示；
+- 待求的子空间矩阵 $\{Z_a,Z_a^{(v)},Z_u^{(v)}\}_{v=1}^V$ 分别用可学习参数 $\{\Theta_a,\Theta_a^{(v)},\Theta_u^{(v)}\}_{v=1}^V$ 表示；
 - 使用Adam优化算法最小化损失函数 $\mathcal{L}_{\text{ABSS-IMC}}$ 即可；
 
 

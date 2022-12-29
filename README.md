@@ -2,8 +2,9 @@
 
 This is the official PyTorch implementation of Anchor-based Sparse Subspace Incomplete Multi-view Clustering.
 
-> Anchor-based Sparse Subspace Incomplete Multi-view Clustering	04/2022-10/2022
-> Ao Li, Cong Feng, Zhuo Wang, Yuegong Sun, Zizhen Wang, Ling Sun.
+> Anchor-based Sparse Subspace Incomplete Multi-view Clustering
+> Ao Li, Cong Feng, Zhuo Wang, Yuegong Sun, Zizhen Wang, Ling Sun Submitted to Wireless Networks.
+
 
 ![image.png](docs/image.png)
 
@@ -12,11 +13,13 @@ This is the official PyTorch implementation of Anchor-based Sparse Subspace Inco
 
 ```
 pip install -r requirements.txt
-```
-
-```
 python train.py
 ```
+
+## Documentation
+
+Please see the [English version](docs/formula-en.md) or [中文版文档](docs/formula-zh.md) for the details of our method.
+
 
 ## Acknowledgement
 
@@ -30,5 +33,5 @@ Large-scale Multi-view Subspace Clustering in Linear Time. CoRR abs/1911.09290 (
 
 If you find this work useful, please cite us as follow:
 
-> Anchor-based Sparse Subspace Incomplete Multi-view Clustering	04/2022-10/2022
+> Anchor-based Sparse Subspace Incomplete Multi-view Clustering
 > Ao Li, Cong Feng, Zhuo Wang, Yuegong Sun, Zizhen Wang, Ling Sun. Submitted to Wireless Networks.
