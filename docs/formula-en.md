@@ -6,7 +6,7 @@
 
 ### 1.1 Symbols
 
-- $A^{(v)} \in R^{n_a \times d^{(v)}}$ is the view-complete subset for each view. Each sample  has all the views. Its size is $n_a$.
+- $A^{(v)} \in R^{n_a \times d^{(v)}}$ is the view-complete subset for each view. Each sample has all the views. Its size is $n_a$.
 - $U^{(v)} \in R^{n^{(v)}_u \times d^{(v)}}$ is the incomplete subset for each view. Each sample only has parts of the views. Its size is $n^{(v)}_u, v = 1,2,\cdots,V$.
 - $n^{(v)}$ is the number of existent samples of each view.
 - $n_a$ is the number of samples of the complete subset.
@@ -20,7 +20,7 @@
 ### 1.2 Inputs
 
 - $X^{(v)} \in R^{ n \times d^{(v)} }$ are all the samples of each view, where inexistent samples are marked with NaN.
-- $\bar{X}^{(v)} = [A^{(v)} ; U^{(v)}] \in R^{ n^{(v)} \times d^{(v)} }$ are the reorganized samples of each view, where inexistent samples are dropped and the complete subset is arranged before the incomplete subset.
+- $\bar{X}^{(v)} = [A^{(v)}; U^{(v)}] \in R^{ n^{(v)} \times d^{(v)} }$ are the reorganized samples of each view, where inexistent samples are dropped and the complete subset is arranged before the incomplete subset.
 - $W^{(v)} \in \{0,1\}^{n \times n^{(v)}}$ is the missing indicator matrix.
 - $\lambda$ is the balancing parameter in the loss function.
 
@@ -51,7 +51,7 @@ $$
 
 ### 2.1 Learning an inter-view consensus sparse subspace matrix for the complete subset
 
-Since each sample of the complete subset possesses all the view, the learned $Z_a$ is the consensus subspace cross the views, which fuses information from different views.
+Since each sample of the complete subset possesses all the views, the learned $Z_a$ is the consensus subspace across the views, which fuses information from different views.
 
 $$
 \min \sum_{v=1}^V \left\Vert Z_a^{(v)} A^{(v)} - A^{(v)} \right\Vert _F^2 + \lambda \left\Vert Z_a^{(v)} - Z_a \right\Vert _F^2 \\
@@ -61,13 +61,13 @@ $$
 
 - $A^{(v)}$ is the complete subset of view $v$.
 - $Z_a^{(v)} \in R^{n_a \times n_a}$ is the subspace matrix of the complete subset of view $v$ constructed by self-representative property.
-- $Z_a \in R^{n_a \times n_a}$ is the consensus subspace matrix of the complete subset, that is, the centroid of $\{Z_a^{(v)}\}_{v=1}^V$ .
+- $Z_a \in R^{n_a \times n_a}$ is the consensus subspace matrix of the complete subset, that is, the centroid of $\{Z_a^{(v)}\}_{v=1}^V$.
 
 
 ### 2.2 Learning the intra-view anchor-based subspace matrices for the incomplete subset
 
 - Since the samples of the incomplete subset are not perfectly aligned, no inter-view consensus subspace can be learned.
-- Yet within each view, we can linearly combine samples of $A^{(v)}$ to approximate $U^{(v)}$ so as to learn their relationships as $Z_u^{(v)} \in R^{{n_u}^{(v)} \times n_a}$.
+- Yet within each view, we can linearly combine samples of $A^{(v)}$ to approximate $U^{(v)}$ to learn their relationships as $Z_u^{(v)} \in R^{{n_u}^{(v)} \times n_a}$.
 - Then, concatenate two subspace matrices $Z_a, Z_u^{(v)}$ within each view to obtain the anchor graph (bipartile graph) of that view $Z^{(v)} \in R^{{n}^{(v)} \times n_a}$.
 
 $$
@@ -76,14 +76,14 @@ $$
 $$
 
 
-### 2.3 Leanring a anchor graph for view existent samples and a complete consensus anchor graph
+### 2.3 Learning the complete consensus anchor graph
 
 Putting the above 1. inter-view consensus sparse subspace learning and 2. intra-view anchor-based sparse subspace learning into a unified optimization problem.
 
 
-- Compute the anchor graph of the existent samples of each view as: $Z^{(v)} = [ Z_a ; Z_u^{(v)} ] \in R^{n^{(v)} \times n_a}$.
+- Compute the anchor graph of the existent samples of each view as $Z^{(v)} = [ Z_a; Z_u^{(v)} ] \in R^{n^{(v)} \times n_a}$.
 - Compute the complete consensus anchor graph as: $Z = \frac{1}{V} \sum_{v=1}^V W^{(v)} Z^{(v)}$ .
-- Perform Fast Spectral Clustering on $Z$ and obtain the final clustering results $C$ .
+- Perform Fast Spectral Clustering on $Z$ and obtain the final clustering results $C$.
 
 
 $$
@@ -98,7 +98,7 @@ $$
 
 ### 2.4 Equivalent unconstrained loss and its optimization
 
-We transform the above objective function into an equivalent unconstrained form to take advantage of autograd and hardware acceleration of PyTorch. 
+We transform the above objective function into an equivalent unconstrained form to take advantage of the auto-gradient and hardware acceleration of PyTorch. 
 
 - Use masked softmax activation function $\sigma_M(X)$ to substitute constrains $Z \geq 0, Z 1 = 1, diag(Z)=0$.
 - Use mean squared error $\mathcal{L}_{MSE}(X, Y)$ to implement F-norm error, i.e., $\left\Vert X - Y \right\Vert_F^2$.
@@ -151,7 +151,7 @@ $$
 
 
 3. Perform clustering on $Z$ as follows:
-   - Perform singluar decomposition on $Z$, i.e., $Z=P\Sigma Q^T$.
+   - Perform singular decomposition on $Z$, i.e., $Z=P\Sigma Q^T$.
    - The left singular matrix of $Z$ (i.e., $P \in R^{n \times c}$) is the spectral embeddings of $Z$.
    - Take the first $c$ features of $P$ as we have $c$ clusters.
    - Perform normalization on $P$, i.e., $\tilde{P}_i = \frac{P_i}{||P_i||_F}$.
@@ -160,7 +160,5 @@ $$
 
 ### 3.3 Hyper-parameters settings
 
-- Use Adam optimizer with learning rate set to 0.1.
+- Use Adam optimizer with a learning rate set to 0.1.
 - Hyper-parameter $\lambda$ is set to 0.1.
-
-
