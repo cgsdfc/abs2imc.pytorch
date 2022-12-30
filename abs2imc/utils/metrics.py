@@ -1,35 +1,50 @@
-# Imputation.
+# MIT License
+
+# Copyright (c) 2022 Ao Li, Cong Feng
+
+# Permission is hereby granted, free of charge, to any person obtaining a copy
+# of this software and associated documentation files (the "Software"), to deal
+# in the Software without restriction, including without limitation the rights
+# to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+# copies of the Software, and to permit persons to whom the Software is
+# furnished to do so, subject to the following conditions:
+
+# The above copyright notice and this permission notice shall be included in all
+# copies or substantial portions of the Software.
+
+# THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+# IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+# FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+# AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+# LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+# OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+# SOFTWARE.
+
+import time
+from collections import defaultdict
 from typing import List
+
 import numpy as np
+import sklearn.preprocessing as pp
+import torch
+import torch.nn.functional as F
+from scipy.sparse.linalg import eigs
+from sklearn.cluster import k_means
 from sklearn.metrics import (
-    mean_squared_error,
+    accuracy_score,
+    f1_score,
     mean_absolute_error,
     mean_absolute_percentage_error,
+    mean_squared_error,
 )
-from collections import defaultdict
-
 from torch import Tensor
-from sklearn.metrics import accuracy_score
-from sklearn.metrics import f1_score
 
-from .idecutils import cluster_acc, purity_score, best_map
+from .idecutils import best_map, cluster_acc
 from .idecutils import normalized_mutual_info_score as nmi_score
-from sklearn.cluster import k_means
-
-# KMeans_Torch
-from .torch_utils import convert_numpy, convert_tensor
-from .kmeans_pytorch import (
-    kmeans as kmeans_torch,
-    pairwise_distance as pairwise_distance_torch,
-)
-import torch
-
-# SpectralClustering_Torch
-from scipy.sparse.linalg import eigs
-import sklearn.preprocessing as pp
-import time
-import torch.nn.functional as F
-
+from .idecutils import purity_score
+from .kmeans_pytorch import kmeans as kmeans_torch
+from .kmeans_pytorch import pairwise_distance as pairwise_distance_torch
+from .torch_utils import convert_numpy
 
 _METRICS = {
     "mse": mean_squared_error,
@@ -227,6 +242,7 @@ def get_all_metrics(label, ypred):
     )
     return metrics
 
+
 def SpectralClustering(Z, S, c, type, **kwds):
     """
     fastEIG: Z
@@ -346,6 +362,7 @@ def Evaluate_Graph(
 
 def Seed_All():
     import random
+
     import numpy as np
     import torch
 
