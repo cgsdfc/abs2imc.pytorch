@@ -87,9 +87,12 @@ Putting the above 1. inter-view consensus sparse subspace learning and 2. intra-
 
 
 $$
-\min \sum_{v=1}^V \left\{ \left\Vert Z_a^{(v)} A^{(v)} - A^{(v)} \right\Vert _F^2 +
+\min \sum_{v=1}^V \{ \left\Vert Z_a^{(v)} A^{(v)} - A^{(v)} \right\Vert _F^2 +
 \lambda \left\Vert Z_a^{(v)} - Z_a \right\Vert _F^2 +
-\left\Vert Z_u^{(v)} A^{(v)} - U^{(v)} \right\Vert _F^2 \right\} \\
+\left\Vert Z_u^{(v)} A^{(v)} - U^{(v)} \right\Vert _F^2 \} \\
+$$
+
+$$
 \text{s.t. } Z_a^{(v)} \geq 0, Z_a^{(v)} 1 = 1, diag(Z_a^{(v)}) = 0 \\
              Z_a \geq 0, Z_a 1 = 1, diag(Z_a) = 0 \\
              Z_u^{(v)} \geq 0, Z_u^{(v)} 1 = 1
@@ -107,15 +110,15 @@ We transform the above objective function into an equivalent unconstrained form 
 
 $$
 \mathcal{L}_{\text{ABS2-IMC}} = 
-\sum_{v=1}^V \left\{ \mathcal{L}_{MSE} \left( \sigma_M(\Theta_a^{(v)}) A^{(v)}, A^{(v)} \right) +
-\lambda \mathcal{L}_{MSE} \left( \Theta_a^{(v)} , \Theta_a \right) +
-\mathcal{L}_{MSE} \left( \sigma(\Theta_u^{(v)}) , U^{(v)} \right)
-\right\}
+\sum_{v=1}^V \{ \mathcal{L}_{MSE} \left( \sigma_M(\Theta_a^{(v)}) A^{(v)}, A^{(v)} \right) +
+\lambda \mathcal{L}_{MSE} ( \Theta_a^{(v)} , \Theta_a ) +
+\mathcal{L}_{MSE} \left( \sigma(\Theta_u^{(v)}) , U^{(v)} \right) \}
 $$
 
 The definition of the masked softmax activation function is as follows:
+
 $$
-[\sigma_M(X)]_{i,j} = \frac{\exp(X_{i,j}) \cdot M_{i,j}}{\sum_{j=1}^n \exp(X_{i,j}) \cdot M_{i,j}}
+\sigma_M(X_{i,j}) = \frac{\exp(X_{i,j}) \cdot M_{i,j}}{ \sum_{j=1}^{n} \exp(X_{i,j}) \cdot M_{i,j}}
 $$
 
 
