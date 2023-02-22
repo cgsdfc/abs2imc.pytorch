@@ -7,7 +7,7 @@
 This is the official PyTorch implementation of Anchor-based Sparse Subspace Incomplete Multi-view Clustering (ABS2IMC).
 
 > Anchor-based Sparse Subspace Incomplete Multi-view Clustering
-> Ao Li, Cong Feng, Zhuo Wang, Yuegong Sun, Zizhen Wang, Ling Sun, 2022, Wireless Networks, under review.
+> Ao Li, Cong Feng, Zhuo Wang, Yuegong Sun, Zizhen Wang, Ling Sun, 2023, accepted by Wireless Networks.
 
 ### Abstract
 
