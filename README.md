@@ -39,4 +39,4 @@ Large-scale Multi-view Subspace Clustering in Linear Time. CoRR abs/1911.09290 (
 If you find this work useful, please cite us as follows:
 
 > Anchor-based Sparse Subspace Incomplete Multi-view Clustering
-> Ao Li, Cong Feng, Zhuo Wang, Yuegong Sun, Zizhen Wang, Ling Sun, 2022, Wireless Networks, under review.
+> Ao Li, Cong Feng, Zhuo Wang, Yuegong Sun, Zizhen Wang, Ling Sun, 2023, Wireless Networks.
